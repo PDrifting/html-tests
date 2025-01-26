@@ -3,108 +3,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barcode Encoder and Decoder</title>
-    <script src="https://cdn.jsdelivr.net/npm/bwip-js@0.0.6/dist/bwip-js-min.js"></script>
+    <title>Barcode Encoder/Decoder with Compression</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-        }
-        #video-container {
-            position: relative;
-            width: 100%;
-            height: auto;
-        }
-        #focus-indicator {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-size: 20px;
-            font-weight: bold;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 5px;
-            border-radius: 5px;
+            text-align: center;
+            margin: 20px;
         }
         canvas {
-            border: 1px solid #000;
+            border: 1px solid black;
+        }
+        video {
             margin-top: 20px;
+        }
+        #barcodeCanvas {
+            display: block;
+            margin: auto;
+        }
+        #webcam {
+            display: block;
+            margin: 20px auto;
         }
     </style>
 </head>
 <body>
+    <h1>Barcode Encoder/Decoder with Compression</h1>
+    <textarea id="inputData" placeholder="Enter text to encode..." rows="4" cols="50"></textarea>
+    <br>
+    <button id="encodeButton">Encode</button>
+    <button id="startScan">Start Scan</button>
+    <br>
+    <canvas id="barcodeCanvas" width="500" height="500"></canvas>
+    <p>Encoded Data (Binary): <span id="encodedDataOutput"></span></p>
+    <video id="webcam" autoplay playsinline width="500" height="500" style="display: none;"></video>
+    <p id="decodedOutput"></p>
 
-<h1>Barcode Encoder and Decoder</h1>
+    <!-- Corrected bwip-js Barcode Encoding Library (bwip-js) -->
+    <script src="https://cdn.jsdelivr.net/npm/bwip-js@2.0.0/dist/bwip-js-min.js"></script>
+    <!-- Compression library (Pako for Deflate compression) -->
+    <script src="https://cdn.jsdelivr.net/npm/pako/dist/pako.min.js"></script>
+    <!-- QR Decoding Library -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 
-<div id="video-container">
-    <video id="video" width="640" height="480" autoplay></video>
-    <div id="focus-indicator">Adjust Camera Focus</div>
-</div>
+    <script>
+        const pixelSize = 5; // Size of each pixel in the barcode
+        const canvas = document.getElementById('barcodeCanvas');
+        const ctx = canvas.getContext('2d');
+        const video = document.getElementById('webcam');
+        const decodedOutput = document.getElementById('decodedOutput');
+        const encodedDataOutput = document.getElementById('encodedDataOutput');
 
-<canvas id="barcode-canvas"></canvas>
-<p>Encoded Data: <span id="encoded-data"></span></p>
-
-<button onclick="encodeData()">Encode Data</button>
-
-<script>
-    // Initialize video stream
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('barcode-canvas');
-    const focusIndicator = document.getElementById('focus-indicator');
-    const encodedDataDisplay = document.getElementById('encoded-data');
-
-    // Access the webcam and set a higher resolution
-    navigator.mediaDevices.getUserMedia({
-        video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+        // Wait for bwip-js to be loaded and available
+        function checkBwipJsLoaded() {
+            if (typeof bwipjs === 'undefined') {
+                alert('Error: bwip-js library is not loaded properly!');
+                return false;
+            }
+            return true;
         }
-    }).then((stream) => {
-        video.srcObject = stream;
-        video.style.display = 'block';
-    }).catch(err => {
-        console.error('Webcam error:', err);
-        alert('Failed to access the webcam.');
-    });
 
-    // Focus indicator for the camera
-    const interval = setInterval(() => {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            focusIndicator.textContent = 'Camera Focused';
-            focusIndicator.style.color = 'green';  // Green when focused
-        } else {
-            focusIndicator.textContent = 'Adjust Camera Focus';
-            focusIndicator.style.color = 'red';    // Red when out of focus
-        }
-    }, 500);
+        // Encode input data to a barcode (using pako for compression and bwip-js for PDF417 barcode encoding)
+        document.getElementById('encodeButton').addEventListener('click', () => {
+            console.log('Encode button clicked');
+            const inputData = document.getElementById('inputData').value;
+            if (!inputData) {
+                alert('Please enter data to encode.');
+                return;
+            }
 
-    // Encode data into PDF417 barcode
-    function encodeData() {
-        const dataToEncode = "This is some sample data that will be encoded into a PDF417 barcode.";
-        
-        // Example of compression (Base64 encoded)
-        const compressedBase64 = btoa(dataToEncode);  // Using simple Base64 encoding for illustration
-        
-        // Display encoded data
-        encodedDataDisplay.textContent = compressedBase64;
+            // Compress the data using pako (Deflate algorithm)
+            const compressedData = pako.deflate(inputData, { level: 9 }); // Maximum compression level
 
-        // Generate the PDF417 barcode using bwip-js
-        try {
-            bwipjs.toCanvas(canvas, {
-                bcid: 'pdf417',        // Barcode type
-                text: compressedBase64, // The data to encode
-                scale: 3,              // Scale (adjust size)
-                height: 150,           // Height of the barcode
-                includetext: false,    // Do not include the text below the barcode
-                backgroundcolor: 'white', // White background
-                barcolor: 'black'      // Black bars
+            // Convert the compressed data to a binary string
+            const binaryData = Array.from(new Uint8Array(compressedData))
+                                    .map(byte => byte.toString(2).padStart(8, '0'))
+                                    .join('');
+
+            encodedDataOutput.textContent = binaryData; // Show compressed data as binary string
+
+            // Convert the binary data back to string format
+            const compressedBase64 = btoa(String.fromCharCode.apply(null, compressedData));
+
+            // Debugging output
+            console.log('Compressed Base64 Data:', compressedBase64);
+
+            // Check if bwip-js is available before attempting to generate the barcode
+            if (!checkBwipJsLoaded()) return;
+
+            // Generate the PDF417 barcode using bwip-js
+            try {
+                bwipjs.toCanvas(canvas, {
+                    bcid: 'pdf417',         // Barcode type
+                    text: compressedBase64,  // The data to encode
+                    scale: pixelSize,       // Pixel size for barcode
+                    height: 200,            // Height of the barcode
+                    includetext: false,     // Do not include the text below the barcode
+                });
+                console.log('Barcode successfully generated!');
+            } catch (e) {
+                console.error('Error generating barcode:', e);
+                alert('Error generating barcode.');
+            }
+        });
+
+        // Start the webcam
+        document.getElementById('startScan').addEventListener('click', () => {
+            navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+                video.srcObject = stream;
+                video.style.display = 'block';
+
+                const scanInterval = setInterval(() => {
+                    // Use a separate canvas to process the webcam feed
+                    const videoCanvas = document.createElement('canvas');
+                    const videoCtx = videoCanvas.getContext('2d');
+
+                    // Set the videoCanvas dimensions equal to the video size
+                    videoCanvas.width = video.videoWidth;
+                    videoCanvas.height = video.videoHeight;
+
+                    // Draw the current video frame onto the videoCanvas
+                    videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
+                    const imageData = videoCtx.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
+
+                    // Use jsQR to decode the QR code from the image data
+                    const decoded = jsQR(imageData.data, videoCanvas.width, videoCanvas.height);
+
+                    if (decoded) {
+                        const decodedData = atob(decoded.data); // Decode base64
+                        const decompressedData = pako.inflate(decodedData, { to: 'string' }); // Decompress data
+                        decodedOutput.textContent = `Decoded Output: ${decompressedData}`;
+                        clearInterval(scanInterval);
+                        video.srcObject.getTracks().forEach(track => track.stop());
+                        video.style.display = 'none';
+                    }
+                }, 1000);
+            }).catch(err => {
+                console.error('Webcam error:', err);
+                alert('Failed to access the webcam.');
             });
-            console.log('Barcode successfully generated!');
-        } catch (e) {
-            console.error('Error generating barcode:', e);
-            alert('Error generating barcode.');
-        }
-    }
-</script>
-
+        });
+    </script>
 </body>
 </html>
