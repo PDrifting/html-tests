@@ -3,145 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barcode Encoder/Decoder with Compression</title>
+    <title>Camera Switcher</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin: 20px;
-        }
-        canvas {
-            border: 1px solid black;
-        }
         video {
-            margin-top: 20px;
-        }
-        #barcodeCanvas {
-            display: block;
-            margin: auto;
-        }
-        #webcam {
-            display: block;
-            margin: 20px auto;
+            width: 100%;
+            height: auto;
         }
     </style>
 </head>
 <body>
-    <h1>Barcode Encoder/Decoder with Compression</h1>
-    <textarea id="inputData" placeholder="Enter text to encode..." rows="4" cols="50"></textarea>
-    <br>
-    <button id="encodeButton">Encode</button>
-    <button id="startScan">Start Scan</button>
-    <br>
-    <canvas id="barcodeCanvas" width="500" height="500"></canvas>
-    <p>Encoded Data (Binary): <span id="encodedDataOutput"></span></p>
-    <video id="webcam" autoplay playsinline width="500" height="500" style="display: none;"></video>
-    <p id="decodedOutput"></p>
-
-    <!-- Corrected bwip-js Barcode Encoding Library (bwip-js) -->
-    <script src="https://cdn.jsdelivr.net/npm/bwip-js@2.0.0/dist/bwip-js-min.js"></script>
-    <!-- Compression library (Pako for Deflate compression) -->
-    <script src="https://cdn.jsdelivr.net/npm/pako/dist/pako.min.js"></script>
-    <!-- QR Decoding Library -->
-    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <h1>Switch Camera Demo</h1>
+    <video id="videoElement" autoplay></video>
+    <button id="switchCameraBtn">Switch Camera</button>
 
     <script>
-        const pixelSize = 5; // Size of each pixel in the barcode
-        const canvas = document.getElementById('barcodeCanvas');
-        const ctx = canvas.getContext('2d');
-        const video = document.getElementById('webcam');
-        const decodedOutput = document.getElementById('decodedOutput');
-        const encodedDataOutput = document.getElementById('encodedDataOutput');
+        let currentStream;
+        let currentCameraId = null; // Track which camera we're using (front or back)
 
-        // Wait for bwip-js to be loaded and available
-        function checkBwipJsLoaded() {
-            if (typeof bwipjs === 'undefined') {
-                alert('Error: bwip-js library is not loaded properly!');
-                return false;
-            }
-            return true;
+        // Get all available video devices (cameras)
+        async function getVideoDevices() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            return videoDevices;
         }
 
-        // Encode input data to a barcode (using pako for compression and bwip-js for PDF417 barcode encoding)
-        document.getElementById('encodeButton').addEventListener('click', () => {
-            console.log('Encode button clicked');
-            const inputData = document.getElementById('inputData').value;
-            if (!inputData) {
-                alert('Please enter data to encode.');
-                return;
+        // Start the camera with a specific device ID
+        async function startCamera(deviceId) {
+            // Stop the current stream if it exists
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
             }
 
-            // Compress the data using pako (Deflate algorithm)
-            const compressedData = pako.deflate(inputData, { level: 9 }); // Maximum compression level
+            // Start a new stream with the specified camera
+            const constraints = {
+                video: {
+                    deviceId: deviceId ? { exact: deviceId } : undefined,
+                },
+            };
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+            const videoElement = document.getElementById('videoElement');
+            videoElement.srcObject = currentStream;
+        }
 
-            // Convert the compressed data to a binary string
-            const binaryData = Array.from(new Uint8Array(compressedData))
-                                    .map(byte => byte.toString(2).padStart(8, '0'))
-                                    .join('');
+        // Switch between front and rear cameras
+        async function switchCamera() {
+            const devices = await getVideoDevices();
 
-            encodedDataOutput.textContent = binaryData; // Show compressed data as binary string
+            // Get the front and back cameras
+            const frontCamera = devices.find(device => device.label.toLowerCase().includes('front'));
+            const backCamera = devices.find(device => device.label.toLowerCase().includes('back'));
 
-            // Convert the binary data back to string format
-            const compressedBase64 = btoa(String.fromCharCode.apply(null, compressedData));
-
-            // Debugging output
-            console.log('Compressed Base64 Data:', compressedBase64);
-
-            // Check if bwip-js is available before attempting to generate the barcode
-            if (!checkBwipJsLoaded()) return;
-
-            // Generate the PDF417 barcode using bwip-js
-            try {
-                bwipjs.toCanvas(canvas, {
-                    bcid: 'pdf417',         // Barcode type
-                    text: compressedBase64,  // The data to encode
-                    scale: pixelSize,       // Pixel size for barcode
-                    height: 200,            // Height of the barcode
-                    includetext: false,     // Do not include the text below the barcode
-                });
-                console.log('Barcode successfully generated!');
-            } catch (e) {
-                console.error('Error generating barcode:', e);
-                alert('Error generating barcode.');
+            // If we're using the front camera, switch to the back camera, and vice versa
+            if (currentCameraId === frontCamera.deviceId) {
+                currentCameraId = backCamera.deviceId;
+            } else {
+                currentCameraId = frontCamera.deviceId;
             }
-        });
 
-        // Start the webcam
-        document.getElementById('startScan').addEventListener('click', () => {
-            navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-                video.srcObject = stream;
-                video.style.display = 'block';
+            // Restart the camera with the new camera ID
+            await startCamera(currentCameraId);
+        }
 
-                const scanInterval = setInterval(() => {
-                    // Use a separate canvas to process the webcam feed
-                    const videoCanvas = document.createElement('canvas');
-                    const videoCtx = videoCanvas.getContext('2d');
+        // Initialize the video stream with the default camera
+        async function init() {
+            const devices = await getVideoDevices();
+            const frontCamera = devices.find(device => device.label.toLowerCase().includes('front'));
+            currentCameraId = frontCamera.deviceId;
 
-                    // Set the videoCanvas dimensions equal to the video size
-                    videoCanvas.width = video.videoWidth;
-                    videoCanvas.height = video.videoHeight;
+            await startCamera(currentCameraId);
 
-                    // Draw the current video frame onto the videoCanvas
-                    videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
-                    const imageData = videoCtx.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
+            // Set up the switch camera button
+            const switchButton = document.getElementById('switchCameraBtn');
+            switchButton.addEventListener('click', switchCamera);
+        }
 
-                    // Use jsQR to decode the QR code from the image data
-                    const decoded = jsQR(imageData.data, videoCanvas.width, videoCanvas.height);
-
-                    if (decoded) {
-                        const decodedData = atob(decoded.data); // Decode base64
-                        const decompressedData = pako.inflate(decodedData, { to: 'string' }); // Decompress data
-                        decodedOutput.textContent = `Decoded Output: ${decompressedData}`;
-                        clearInterval(scanInterval);
-                        video.srcObject.getTracks().forEach(track => track.stop());
-                        video.style.display = 'none';
-                    }
-                }, 1000);
-            }).catch(err => {
-                console.error('Webcam error:', err);
-                alert('Failed to access the webcam.');
-            });
-        });
+        // Initialize when the page is loaded
+        window.onload = init;
     </script>
 </body>
 </html>
